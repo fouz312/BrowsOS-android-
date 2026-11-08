@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>BrowOS</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="boot"><div class="logo bootlogo"></div><h1>BrowOS</h1><p id="bootMsg">Starting BrowOS...</p><div class="bar"><i></i></div></div>
+<div id="desktop">
+  <div id="wall"></div>
+  <div id="clockWidget"><b id="bigTime"></b><span id="bigDate"></span></div>
+  <div id="icons"></div>
+  <div id="windows"></div>
+  <div id="widgets" class="panel left"></div>
+  <div id="notifs" class="panel right"></div>
+  <div id="start" class="hidden">
+    <input id="search" type="search" placeholder="Search for apps" autocomplete="off">
+    <div id="startBody"></div>
+    <div class="sfoot">
+      <button id="userBtn"><span class="avatar" id="avatar">U</span><span id="userName">User</span></button>
+      <button id="powerBtn" aria-label="Power">&#9211;</button>
+    </div>
+  </div>
+  <nav id="taskbar">
+    <div id="tbLeft"><button id="widgetsBtn" class="tbb" aria-label="Widgets">&#127780;&#65039;</button></div>
+    <div id="tbCenter">
+      <button id="startBtn" aria-label="Start menu"><span class="logo sm"></span></button>
+      <button id="searchBtn" class="tbb" aria-label="Search">&#128269;</button>
+      <div id="tbApps"></div>
+    </div>
+    <div id="tbTray"><button id="bellBtn" class="tbb" aria-label="Notifications">&#128276;<i id="bellDot"></i></button><button id="lockBtn" class="tbb" aria-label="Lock">&#128274;</button><span id="tbClock"></span></div>
+  </nav>
+  <div id="dropHint" class="hidden"></div>
+  <div id="toast" class="hidden"></div>
+</div>
+<script src="js/os.js"></script>
+<script src="js/i18n.js"></script>
+<script src="js/lock.js"></script>
+<script src="js/setup.js"></script>
+<script src="js/apps.js"></script>
+<script src="js/clock.js"></script>
+<script src="js/files.js"></script>
+<script src="js/browser.js"></script>
+<script src="js/media.js"></script>
+<script src="js/tools.js"></script>
+<script src="js/more.js"></script>
+<script src="js/vault.js"></script>
+<script src="js/widgets.js"></script>
+<script src="js/backup.js"></script>
+<script src="js/camera.js"></script>
+<script src="js/voice.js"></script>
+<script src="js/secret.js"></script>
+<script src="js/settings.js"></script>
+<script>try{if(window.Capacitor&&Capacitor.isNativePlatform&&Capacitor.isNativePlatform())document.body.classList.add("native")}catch(e){}BrowOS.start();</script>
+</body>
+</html>

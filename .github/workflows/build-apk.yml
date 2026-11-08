@@ -41,13 +41,13 @@ jobs:
           }
           place index.html www
           place style.css www
-          for n in os i18n lock setup apps clock files browser media tools more vault widgets settings; do place "$n.js" www/js; done
+          for n in os i18n lock setup apps clock files browser media tools more vault widgets backup camera voice secret settings; do place "$n.js" www/js; done
           if [ ! -f package.json ]; then
             f=$(find . -name package.json -not -path "./node_modules/*" | head -n 1)
             if [ -n "$f" ]; then
               cp "$f" package.json
             else
-              printf '{\n  "name": "browos",\n  "version": "1.3.0",\n  "private": true,\n  "dependencies": {\n    "@capacitor/android": "^7.0.0",\n    "@capacitor/app": "^7.0.0",\n    "@capacitor/browser": "^7.0.0",\n    "@capacitor/core": "^7.0.0",\n    "@capacitor/filesystem": "^7.0.0"\n  },\n  "devDependencies": {\n    "@capacitor/cli": "^7.0.0"\n  }\n}\n' > package.json
+              printf '{\n  "name": "browos",\n  "version": "1.4.0",\n  "private": true,\n  "dependencies": {\n    "@capacitor/android": "^7.0.0",\n    "@capacitor/app": "^7.0.0",\n    "@capacitor/browser": "^7.0.0",\n    "@capacitor/core": "^7.0.0",\n    "@capacitor/filesystem": "^7.0.0",\n    "@capacitor/local-notifications": "^7.0.0",\n    "@capacitor/share": "^7.0.0"\n  },\n  "devDependencies": {\n    "@capacitor/cli": "^7.0.0"\n  }\n}\n' > package.json
               echo "package.json was missing, so I created it"
             fi
           fi
@@ -71,16 +71,31 @@ jobs:
       - name: Create the Android project
         run: npx cap add android
 
+      - name: Allow notifications, camera, microphone and network state
+        run: |
+          M=android/app/src/main/AndroidManifest.xml
+          for P in POST_NOTIFICATIONS CAMERA RECORD_AUDIO MODIFY_AUDIO_SETTINGS ACCESS_NETWORK_STATE; do
+            if ! grep -q "android.permission.$P" "$M"; then
+              sed -i "s#</manifest>#    <uses-permission android:name=\"android.permission.$P\" />\n</manifest>#" "$M"
+            fi
+          done
+
       - name: Add the Chromium browser patch (optional)
         run: |
           D=android/app/src/main/java/com/browos/app
           M=$(find . -name MainActivity.java -not -path "./android/*" -not -path "./node_modules/*" | head -n 1)
           N=$(find . -name NativeBrowserPlugin.java -not -path "./android/*" -not -path "./node_modules/*" | head -n 1)
+          X=$(find . -name Extras.java -not -path "./android/*" -not -path "./node_modules/*" | head -n 1)
           if [ -n "$M" ] && [ -n "$N" ] && [ -d "$D" ]; then
             cp "$D/MainActivity.java" /tmp/MainActivity.original
             cp -f "$M" "$D/MainActivity.java"
             cp -f "$N" "$D/NativeBrowserPlugin.java"
             echo "Chromium patch installed"
+            if [ -n "$X" ]; then
+              cp -f "$X" "$D/Extras.java"
+              sed -i '/^dependencies {/a\\    implementation "androidx.webkit:webkit:1.12.1"' android/app/build.gradle
+              echo "Extras installed (full screen, voice changer, browser checks)"
+            fi
           else
             echo "::warning::MainActivity.java and NativeBrowserPlugin.java were not both found, so the Chromium browser window is skipped. Upload both files to get it."
           fi
@@ -93,7 +108,7 @@ jobs:
       - name: Set app version from the build number
         run: |
           sed -i "s/versionCode 1/versionCode ${{ github.run_number }}/" android/app/build.gradle
-          sed -i "s/versionName \"1.0\"/versionName \"1.3.${{ github.run_number }}\"/" android/app/build.gradle
+          sed -i "s/versionName \"1.0\"/versionName \"1.4.${{ github.run_number }}\"/" android/app/build.gradle
 
       - name: Add the BrowOS app icon
         run: |
@@ -123,12 +138,16 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew
+          D=app/src/main/java/com/browos/app
           if ! ./gradlew assembleDebug; then
-            echo "::warning::The Chromium patch did not compile. Building again without it."
-            D=app/src/main/java/com/browos/app
-            if [ -f /tmp/MainActivity.original ]; then cp /tmp/MainActivity.original "$D/MainActivity.java"; fi
-            rm -f "$D/NativeBrowserPlugin.java"
-            ./gradlew assembleDebug
+            echo "::warning::Build failed. Trying again without the optional extras."
+            rm -f "$D/Extras.java"
+            if ! ./gradlew assembleDebug; then
+              echo "::warning::Trying again without the Chromium patch."
+              if [ -f /tmp/MainActivity.original ]; then cp /tmp/MainActivity.original "$D/MainActivity.java"; fi
+              rm -f "$D/NativeBrowserPlugin.java" "$D/Extras.java"
+              ./gradlew assembleDebug
+            fi
           fi
 
       - name: Upload the APK
