@@ -1,0 +1,139 @@
+name: Build BrowOS APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the BrowOS source code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Show the files in the repository
+        run: find . -not -path "./.git/*" -not -path "./node_modules/*" -type f | sort
+
+      - name: Put every file in the right folder
+        run: |
+          mkdir -p www/js
+          place() {
+            f=$(find . -name "$1" -not -path "./node_modules/*" -not -path "./android/*" -not -path "./www/*" | awk '{print gsub("/","/") " " $0}' | sort -n | head -n 1 | cut -d" " -f2-)
+            if [ -n "$f" ]; then
+              cp -f "$f" "$2/$1"
+              echo "Using $f for $2/$1"
+            elif [ ! -f "$2/$1" ]; then
+              echo "::error::The file $1 is missing from your repository. Upload it and run the build again."
+              exit 1
+            fi
+          }
+          place index.html www
+          place style.css www
+          for n in os i18n lock setup apps clock files browser media tools more vault widgets settings; do place "$n.js" www/js; done
+          if [ ! -f package.json ]; then
+            f=$(find . -name package.json -not -path "./node_modules/*" | head -n 1)
+            if [ -n "$f" ]; then
+              cp "$f" package.json
+            else
+              printf '{\n  "name": "browos",\n  "version": "1.3.0",\n  "private": true,\n  "dependencies": {\n    "@capacitor/android": "^7.0.0",\n    "@capacitor/app": "^7.0.0",\n    "@capacitor/browser": "^7.0.0",\n    "@capacitor/core": "^7.0.0",\n    "@capacitor/filesystem": "^7.0.0"\n  },\n  "devDependencies": {\n    "@capacitor/cli": "^7.0.0"\n  }\n}\n' > package.json
+              echo "package.json was missing, so I created it"
+            fi
+          fi
+          if [ ! -f capacitor.config.json ]; then
+            printf '{\n  "appId": "com.browos.app",\n  "appName": "BrowOS",\n  "webDir": "www",\n  "backgroundColor": "#0b0714"\n}\n' > capacitor.config.json
+            echo "capacitor.config.json was missing, so I created it"
+          fi
+          if [ ! -f debug.keystore ]; then
+            f=$(find . -name debug.keystore -not -path "./node_modules/*" | head -n 1)
+            if [ -n "$f" ]; then
+              cp "$f" debug.keystore
+            else
+              keytool -genkeypair -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+              echo "::warning::debug.keystore was missing, so a new key was made. Upload debug.keystore so updates keep your data."
+            fi
+          fi
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Create the Android project
+        run: npx cap add android
+
+      - name: Add the Chromium browser patch (optional)
+        run: |
+          D=android/app/src/main/java/com/browos/app
+          M=$(find . -name MainActivity.java -not -path "./android/*" -not -path "./node_modules/*" | head -n 1)
+          N=$(find . -name NativeBrowserPlugin.java -not -path "./android/*" -not -path "./node_modules/*" | head -n 1)
+          if [ -n "$M" ] && [ -n "$N" ] && [ -d "$D" ]; then
+            cp "$D/MainActivity.java" /tmp/MainActivity.original
+            cp -f "$M" "$D/MainActivity.java"
+            cp -f "$N" "$D/NativeBrowserPlugin.java"
+            echo "Chromium patch installed"
+          else
+            echo "::warning::MainActivity.java and NativeBrowserPlugin.java were not both found, so the Chromium browser window is skipped. Upload both files to get it."
+          fi
+
+      - name: Use the same signing key every build
+        run: |
+          mkdir -p ~/.android
+          cp debug.keystore ~/.android/debug.keystore
+
+      - name: Set app version from the build number
+        run: |
+          sed -i "s/versionCode 1/versionCode ${{ github.run_number }}/" android/app/build.gradle
+          sed -i "s/versionName \"1.0\"/versionName \"1.3.${{ github.run_number }}\"/" android/app/build.gradle
+
+      - name: Add the BrowOS app icon
+        run: |
+          RES=android/app/src/main/res
+          copied=0
+          for pair in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
+            dir=${pair%%:*}
+            px=${pair##*:}
+            f=$(find . -name "icon-$px.png" -not -path "./node_modules/*" -not -path "./android/*" | head -n 1)
+            if [ -n "$f" ]; then
+              cp "$f" "$RES/mipmap-$dir/ic_launcher.png"
+              cp "$f" "$RES/mipmap-$dir/ic_launcher_round.png"
+              copied=1
+            fi
+          done
+          if [ "$copied" = 1 ]; then
+            rm -rf "$RES/mipmap-anydpi-v26"
+            echo "BrowOS icon installed"
+          else
+            echo "No icon files found, so the default icon is used"
+          fi
+
+      - name: Copy BrowOS into Android
+        run: npx cap sync android
+
+      - name: Build the APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          if ! ./gradlew assembleDebug; then
+            echo "::warning::The Chromium patch did not compile. Building again without it."
+            D=app/src/main/java/com/browos/app
+            if [ -f /tmp/MainActivity.original ]; then cp /tmp/MainActivity.original "$D/MainActivity.java"; fi
+            rm -f "$D/NativeBrowserPlugin.java"
+            ./gradlew assembleDebug
+          fi
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: BrowOS-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
